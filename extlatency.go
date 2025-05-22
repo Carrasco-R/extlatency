@@ -16,9 +16,9 @@ func Parse(logStr string) any {
 	apiGatewayLogRegex := regexp.MustCompile(`(?:ExtLatency: )(.*)(\[.*\])$`)
 
 	if datapowerLogRegex.MatchString(logStr) {
-		fmt.Println("Parse as DP Log")
+		// fmt.Println("Parse as DP Log")
 	} else if apiGatewayLogRegex.MatchString(logStr) {
-		fmt.Println("Handle as APIC Log")
+		// fmt.Println("Handle as APIC Log")
 		match := apiGatewayLogRegex.FindStringSubmatch(logStr)
 		if len(match) > 0 {
 			actionsRaw := strings.Trim(match[1], ", ")
@@ -27,13 +27,11 @@ func Parse(logStr string) any {
 			// fmt.Println(rawActions)
 			actions := parseActions(rawActions)
 			// fmt.Println(actions)
-			baseNode, err := nestActionsByTransaction(actions)
+			actionTree, err := nestActions(actions)
 			if err != nil {
 				log.Fatalln(err)
 			}
-			fmt.Println(baseNode.name)
-			fmt.Println(baseNode.duration)
-			fmt.Println(baseNode.children)
+			fmt.Println(actionTree)
 		}
 	} else {
 		fmt.Println("Handle as APIC Log")
@@ -57,20 +55,15 @@ func getDescriptionMap() map[string]string {
 }
 
 type BaseAction struct {
-	keyword string
-	elapsed int
+	keyword string `json:""`
+	elapsed int // total time elapsed when action ended
 }
 
 type Action struct {
-	BaseAction
+	BaseAction 
 	description string
-	duration    int
-}
-
-type Node struct {
-	name     string
-	duration int
-	children []Action
+	duration    int // duration of action (optional)
+	children    any // nested children (optional)
 }
 
 func parseActions(baseActions []BaseAction) []Action {
@@ -106,21 +99,51 @@ func parseActionsBase(actionsRawSplit []string) []BaseAction {
 	return actions
 }
 
-func nestActionsByTransaction(actions []Action) (Node, error) {
+func nestActions(actions []Action) (Action, error) {
 	firstAction := actions[0]
 	lastAction := actions[len(actions)-1]
 	if firstAction.keyword == "TS" && lastAction.keyword == "TC" {
-		children := actions[1 : len(actions)-1]
+		children := actions[1 : len(actions)-1]        
 		for i, value := range children {
 			if value.keyword == "TS" || value.keyword == "TC" {
 				log.Fatalf("Log contains more than one transaction, %s found on index %d", value.keyword, i)
 			}
 		}
-		return Node{
-			name:     "Transaction",
-			duration: lastAction.elapsed,
-			children: children,
+        nestedChildren, err := nestActionsByProcessingRules(children)
+        if err != nil {
+            log.Fatalln(err)
+        }
+		transactionBase := BaseAction{
+			keyword: "Transaction",
+			elapsed: lastAction.elapsed,
+		}
+		return Action{
+			BaseAction:  transactionBase,
+			description: "TODO Custom Description",
+			duration:    lastAction.elapsed - firstAction.elapsed,
+			children:    nestedChildren,
 		}, nil
 	}
-	return Node{}, errors.New("log does not start and end with TS and TC respectively")
+	return Action{}, errors.New("log does not start and end with TS and TC respectively")
+}
+
+func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
+	var err error
+	var startTracker []int
+	var childrenActions []Action
+	startKeyword := "PS"
+	endKeyword := "PC"
+	for _, action := range actions {
+		if action.keyword == startKeyword {
+
+		}
+		if action.keyword == endKeyword {
+
+		}
+		if action.keyword != endKeyword && len(startTracker) != 0 {
+			childrenActions = append(childrenActions, action)
+		}
+	}
+
+	return actions, err
 }
