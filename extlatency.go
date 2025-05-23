@@ -31,10 +31,19 @@ func Parse(logStr string) any {
 			if err != nil {
 				log.Fatalln(err)
 			}
-			fmt.Println(actionTree)
+			return actionTree
+			// fmt.Println("\nactionTree")
+			// fmt.Println(actionTree)
+			// jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
+			// if err != nil {
+			// 	log.Fatalf("Error marshaling to pretty JSON: %v", err)
+			// }
+
+			// fmt.Println("\n--- Pretty-Printed JSON Output ---")
+			// fmt.Println(string(jsonDataPretty))
 		}
 	} else {
-		fmt.Println("Handle as APIC Log")
+		fmt.Println("Handle as none")
 	}
 	return logStr
 }
@@ -55,15 +64,15 @@ func getDescriptionMap() map[string]string {
 }
 
 type BaseAction struct {
-	keyword string `json:""`
-	elapsed int // total time elapsed when action ended
+	Keyword string `json:"keyword"`
+	Elapsed int    `json:"elapsed"` // total time elapsed when action ended
 }
 
 type Action struct {
-	BaseAction 
-	description string
-	duration    int // duration of action (optional)
-	children    any // nested children (optional)
+	BaseAction
+	Description string `json:"description"`
+	Duration    int    `json:"duration"` // duration of action (optional)
+	Children    any    `json:"children"` // nested children (optional)
 }
 
 func parseActions(baseActions []BaseAction) []Action {
@@ -72,12 +81,12 @@ func parseActions(baseActions []BaseAction) []Action {
 	for i, baseAction := range baseActions {
 		duration := 0
 		if i != 0 {
-			duration = baseAction.elapsed - baseActions[i-1].elapsed
+			duration = baseAction.Elapsed - baseActions[i-1].Elapsed
 		}
 		action := Action{
 			BaseAction:  baseAction,
-			description: descMap[baseAction.keyword],
-			duration:    duration,
+			Description: descMap[baseAction.Keyword],
+			Duration:    duration,
 		}
 		actions = append(actions, action)
 	}
@@ -102,26 +111,26 @@ func parseActionsBase(actionsRawSplit []string) []BaseAction {
 func nestActions(actions []Action) (Action, error) {
 	firstAction := actions[0]
 	lastAction := actions[len(actions)-1]
-	if firstAction.keyword == "TS" && lastAction.keyword == "TC" {
-		children := actions[1 : len(actions)-1]        
+	if firstAction.Keyword == "TS" && lastAction.Keyword == "TC" {
+		children := actions[1 : len(actions)-1]
 		for i, value := range children {
-			if value.keyword == "TS" || value.keyword == "TC" {
-				log.Fatalf("Log contains more than one transaction, %s found on index %d", value.keyword, i)
+			if value.Keyword == "TS" || value.Keyword == "TC" {
+				log.Fatalf("Log contains more than one transaction, %s found on index %d", value.Keyword, i)
 			}
 		}
-        nestedChildren, err := nestActionsByProcessingRules(children)
-        if err != nil {
-            log.Fatalln(err)
-        }
+		nestedChildren, err := nestActionsByProcessingRules(children)
+		if err != nil {
+			log.Fatalln(err)
+		}
 		transactionBase := BaseAction{
-			keyword: "Transaction",
-			elapsed: lastAction.elapsed,
+			Keyword: "Transaction",
+			Elapsed: lastAction.Elapsed,
 		}
 		return Action{
 			BaseAction:  transactionBase,
-			description: "TODO Custom Description",
-			duration:    lastAction.elapsed - firstAction.elapsed,
-			children:    nestedChildren,
+			Description: "TODO Custom Description",
+			Duration:    lastAction.Elapsed - firstAction.Elapsed,
+			Children:    nestedChildren,
 		}, nil
 	}
 	return Action{}, errors.New("log does not start and end with TS and TC respectively")
@@ -133,17 +142,48 @@ func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
 	var childrenActions []Action
 	startKeyword := "PS"
 	endKeyword := "PC"
-	for _, action := range actions {
-		if action.keyword == startKeyword {
-
+	for i, action := range actions {
+		if action.Keyword == startKeyword {
+			startTracker = append(startTracker, i)
+			// fmt.Println("tracker")
+			// fmt.Println(startTracker)
 		}
-		if action.keyword == endKeyword {
+		if action.Keyword == endKeyword {
+			if len(startTracker) == 1 {
+				firstStart := startTracker[0]
+				startTracker = startTracker[:len(startTracker)-1]
+				childrenSlice := actions[firstStart+1 : i]
 
+				for _, childAction := range childrenSlice {
+					if childAction.Keyword == "PS" || childAction.Keyword == "PC" {
+						childrenSlice, err = nestActionsByProcessingRules(childrenSlice)
+						if err != nil {
+							log.Fatalln(err)
+						}
+					}
+				}
+				processingRuleBase := BaseAction{
+					Keyword: "Processing Rule",
+					Elapsed: action.Elapsed,
+				}
+				processingRuleAction := Action{
+					BaseAction:  processingRuleBase,
+					Description: "TODO Custom Description",
+					Duration:    action.Elapsed - actions[firstStart].Elapsed,
+					Children:    childrenSlice,
+				}
+
+				childrenActions = append(childrenActions, processingRuleAction)
+			} else {
+				startTracker = startTracker[:len(startTracker)-1]
+			}
 		}
-		if action.keyword != endKeyword && len(startTracker) != 0 {
+		if action.Keyword != endKeyword && len(startTracker) == 0 {
 			childrenActions = append(childrenActions, action)
 		}
+		// fmt.Printf("children %d", i)
+		// fmt.Println(childrenActions)
 	}
 
-	return actions, err
+	return childrenActions, err
 }
