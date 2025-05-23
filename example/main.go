@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/Carrasco-R/extlatency"
+	"github.com/carrasco-r/extlatency"
 )
 
 func main() {
