@@ -20,37 +20,35 @@ func Parse(logStr string) (Action, error) {
 	if err != nil {
 		return Action{}, err
 	}
-	if datapowerLogRegex.MatchString(logStr) {
+	datapowerMatch := datapowerLogRegex.FindStringSubmatch(logStr)
+	if len(datapowerMatch) > 0 {
 		// Parse as DP Log
-		match := datapowerLogRegex.FindStringSubmatch(logStr)
-		if len(match) > 0 {
-
-			frontSideRawActions := strings.Trim(match[1], ", ")
-			frontSideRawActionsSplit := strings.Split(frontSideRawActions, ",")
-			frontSideBaseActions, err := parseActionsBase(frontSideRawActionsSplit)
-			if err != nil {
-				return Action{}, err
-			}
-
-			backSideRawActions := strings.Trim(match[2], ", ")
-			backSideRawActionsSplit := strings.Split(backSideRawActions, ",")
-			backSideBaseActions, err := parseActionsBase(backSideRawActionsSplit)
-			if err != nil {
-				return Action{}, err
-			}
-
-			frontSideActions, backSideActions := parseActionsDatapower(frontSideBaseActions, backSideBaseActions, descMap)
-			nestedDatapowerLogTree, err := nestTreeDatapower(frontSideActions, backSideActions)
-			if err != nil {
-				return Action{}, err
-			}
-			actionTree = nestedDatapowerLogTree
+		frontSideRawActions := strings.Trim(datapowerMatch[1], ", ")
+		frontSideRawActionsSplit := strings.Split(frontSideRawActions, ",")
+		frontSideBaseActions, err := parseActionsBase(frontSideRawActionsSplit)
+		if err != nil {
+			return Action{}, err
 		}
-	} else if apiGatewayLogRegex.MatchString(logStr) {
+
+		backSideRawActions := strings.Trim(datapowerMatch[2], ", ")
+		backSideRawActionsSplit := strings.Split(backSideRawActions, ",")
+		backSideBaseActions, err := parseActionsBase(backSideRawActionsSplit)
+		if err != nil {
+			return Action{}, err
+		}
+
+		frontSideActions, backSideActions := parseActionsDatapower(frontSideBaseActions, backSideBaseActions, descMap)
+		nestedDatapowerLogTree, err := nestTreeDatapower(frontSideActions, backSideActions)
+		if err != nil {
+			return Action{}, err
+		}
+		actionTree = nestedDatapowerLogTree
+		
+	} else {
 		// Handle as APIC Log
-		match := apiGatewayLogRegex.FindStringSubmatch(logStr)
-		if len(match) > 0 {
-			actionsRaw := strings.Trim(match[1], ", ")
+		apiGatewayMatch := apiGatewayLogRegex.FindStringSubmatch(logStr)
+		if len(apiGatewayMatch) > 0 {
+			actionsRaw := strings.Trim(apiGatewayMatch[1], ", ")
 			actionsRawSplit := strings.Split(actionsRaw, ",")
 			rawActions, err := parseActionsBase(actionsRawSplit)
 			if err != nil {
@@ -62,9 +60,9 @@ func Parse(logStr string) (Action, error) {
 				return Action{}, err
 			}
 			actionTree = nestedTree
+		} else {
+			return Action{}, fmt.Errorf("log does not match the format of extLatency logs")
 		}
-	} else {
-		return Action{}, fmt.Errorf("log does not match the format of extLatency logs")
 	}
 	return actionTree, nil
 }
