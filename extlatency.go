@@ -4,64 +4,74 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
-func Parse(logStr string) any {
+func Parse(logStr string) (any, error) {
 	datapowerLogRegex := regexp.MustCompile(`(?:ExtLatency: )(.*)(?: == )(.*)(\[.*\])$`) // must try first
 	apiGatewayLogRegex := regexp.MustCompile(`(?:ExtLatency: )(.*)(\[.*\])$`)
 
+	var actionTree Action
+	descMap, err := getDescriptionMap()
+	if err != nil {
+		return nil, err
+	}
 	if datapowerLogRegex.MatchString(logStr) {
-		fmt.Println("Parse as DP Log")
+		// Parse as DP Log
 		match := datapowerLogRegex.FindStringSubmatch(logStr)
 		if len(match) > 0 {
+
 			frontSideRawActions := strings.Trim(match[1], ", ")
-			// fmt.Println(frontSideRawActions)
 			frontSideRawActionsSplit := strings.Split(frontSideRawActions, ",")
-			frontSideBaseActions := parseActionsBase(frontSideRawActionsSplit)
-			// frontSideActions := parseActions(frontSideBaseActions)
-			// fmt.Println(frontSideActions)
+			frontSideBaseActions, err := parseActionsBase(frontSideRawActionsSplit)
+			if err != nil {
+				return nil, err
+			}
 
 			backSideRawActions := strings.Trim(match[2], ", ")
-			// fmt.Println(backSideRawActions)
 			backSideRawActionsSplit := strings.Split(backSideRawActions, ",")
-			backSideBaseActions := parseActionsBase(backSideRawActionsSplit)
-			// backSideActions := parseActions(backSideBaseActions)
-			// fmt.Println(backSideActions)
-			frontSideActions, backSideActions := parseActionsDatapower(frontSideBaseActions, backSideBaseActions)
-			actionTree, err := nestTreeDatapower(frontSideActions, backSideActions)
+			backSideBaseActions, err := parseActionsBase(backSideRawActionsSplit)
 			if err != nil {
-				log.Fatalln(err)
-			}
-			fmt.Println(actionTree)
-
-			jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
-			if err != nil {
-				log.Fatalf("Error marshaling to pretty JSON: %v", err)
+				return nil, err
 			}
 
-			fmt.Println("\n--- Pretty-Printed JSON Output ---")
-			fmt.Println(string(jsonDataPretty))
+			frontSideActions, backSideActions := parseActionsDatapower(frontSideBaseActions, backSideBaseActions, descMap)
+			nestedDatapowerLogTree, err := nestTreeDatapower(frontSideActions, backSideActions)
+			if err != nil {
+				return nil, err
+			}
+			actionTree = nestedDatapowerLogTree
+			// fmt.Println(actionTree)
+
+			// jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
+			// if err != nil {
+			// 	log.Fatalf("Error marshaling to pretty JSON: %v", err)
+			// }
+
+			// fmt.Println("\n--- Pretty-Printed JSON Output ---")
+			// fmt.Println(string(jsonDataPretty))
 		}
 	} else if apiGatewayLogRegex.MatchString(logStr) {
-		fmt.Println("Handle as APIC Log")
+		// Handle as APIC Log
 		match := apiGatewayLogRegex.FindStringSubmatch(logStr)
 		if len(match) > 0 {
 			actionsRaw := strings.Trim(match[1], ", ")
 			actionsRawSplit := strings.Split(actionsRaw, ",")
-			rawActions := parseActionsBase(actionsRawSplit)
-			// fmt.Println(rawAction)
-			actions := parseActions(rawActions)
-			// fmt.Println(actions)
-			actionTree, err := nestActions(actions)
+			rawActions, err := parseActionsBase(actionsRawSplit)
 			if err != nil {
-				log.Fatalln(err)
+				return nil, err
 			}
-			return actionTree
+			// fmt.Println(rawAction)
+			actions := parseActions(rawActions, descMap)
+			// fmt.Println(actions)
+			nestedTree, err := nestActions(actions)
+			if err != nil {
+				return nil, err
+			}
+			actionTree = nestedTree
 			// fmt.Println("\nactionTree")
 			// fmt.Println(actionTree)
 			// jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
@@ -73,25 +83,23 @@ func Parse(logStr string) any {
 			// fmt.Println(string(jsonDataPretty))
 		}
 	} else {
-		// fmt.Println("Handle as none")
-		log.Fatal("Log format does not match any Datapower/APIC Format")
+		return nil, fmt.Errorf("log does not match the format of extLatency logs")
 	}
-	return logStr
+	return actionTree, nil
 }
 
-func getDescriptionMap() map[string]string {
+func getDescriptionMap() (map[string]string, error) {
 	filePath := "descriptions.json"
 	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
-		log.Fatalf("Error reading file: %v", err)
+		return nil, err
 	}
 	var data map[string]string
 	err = json.Unmarshal(fileContent, &data)
 	if err != nil {
-		log.Fatalf("Error unmarshaling JSON: %v", err)
+		return nil, err
 	}
-	// fmt.Println("Parsed JSON data:", data)
-	return data
+	return data, nil
 }
 
 type BaseAction struct {
@@ -106,9 +114,8 @@ type Action struct {
 	Children    any    `json:"children"` // nested children (optional)
 }
 
-func parseActions(baseActions []BaseAction) []Action {
+func parseActions(baseActions []BaseAction, descMap map[string]string) []Action {
 	var actions []Action
-	descMap := getDescriptionMap()
 	for i, baseAction := range baseActions {
 		duration := 0
 		if i != 0 {
@@ -124,9 +131,8 @@ func parseActions(baseActions []BaseAction) []Action {
 	return actions
 }
 
-func parseActionsDatapower(baseFrontActions []BaseAction, baseBackActions []BaseAction) ([]Action, []Action) {
+func parseActionsDatapower(baseFrontActions []BaseAction, baseBackActions []BaseAction, descMap map[string]string) ([]Action, []Action) {
 	var actions []Action
-	descMap := getDescriptionMap()
 	var baseActions []BaseAction
 	baseActions = append(baseActions, baseFrontActions...)
 	baseActions = append(baseActions, baseBackActions...)
@@ -148,19 +154,19 @@ func parseActionsDatapower(baseFrontActions []BaseAction, baseBackActions []Base
 	return frontSideActions, backSideActions
 }
 
-func parseActionsBase(actionsRawSplit []string) []BaseAction {
+func parseActionsBase(actionsRawSplit []string) ([]BaseAction, error) {
 	var actions []BaseAction
 	for _, actionStrRaw := range actionsRawSplit {
 		splitStrs := strings.Split(actionStrRaw, "=")
 		keyword := splitStrs[0]
 		elapsed, err := strconv.ParseInt(splitStrs[1], 0, 64)
 		if err != nil {
-			log.Fatalf("Failed to parse action %s elapsed time", keyword)
+			return nil, fmt.Errorf("Failed to parse action %s elapsed time as int", keyword)
 		}
 		action := BaseAction{keyword, int(elapsed)}
 		actions = append(actions, action)
 	}
-	return actions
+	return actions, nil
 }
 
 func nestActions(actions []Action) (Action, error) {
@@ -172,12 +178,12 @@ func nestActions(actions []Action) (Action, error) {
 		// check if any other children contain TS or TC
 		for i, value := range children {
 			if value.Keyword == "TS" || value.Keyword == "TC" {
-				log.Fatalf("Log contains more than one transaction, %s found on index %d", value.Keyword, i)
+				return Action{}, fmt.Errorf("log contains more than one transaction, %s found on index %d", value.Keyword, i)
 			}
 		}
 		nestedChildren, err := nestActionsByProcessingRules(children)
 		if err != nil {
-			log.Fatalln(err)
+			return Action{}, err
 		}
 		transactionBase := BaseAction{
 			Keyword: "Transaction",
@@ -192,6 +198,7 @@ func nestActions(actions []Action) (Action, error) {
 	}
 	return Action{}, errors.New("log does not start and end with TS and TC respectively")
 }
+
 func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Action, error) {
 	firstAction := frontSideActions[0]
 	lastAction := backSideActions[len(backSideActions)-1]
@@ -202,12 +209,12 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		// check if any other children contain TS or TC
 		for i, val := range frontSideChildren {
 			if val.Keyword == "TS" || val.Keyword == "TC" {
-				log.Fatalf("Log contains more than one transaction, %s found on index %d", val.Keyword, i)
+				return Action{}, fmt.Errorf("log contains more than one transaction, %s found on index %d", val.Keyword, i)
 			}
 		}
 		for i, val := range backSideChildren {
 			if val.Keyword == "TS" || val.Keyword == "TC" {
-				log.Fatalf("Log contains more than one transaction, %s found on index %d", val.Keyword, i)
+				return Action{}, fmt.Errorf("log contains more than one transaction, %s found on index %d", val.Keyword, i)
 			}
 		}
 
@@ -217,7 +224,7 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		}
 		nestedFrontChildren, err := nestActionsByProcessingRules(frontSideChildren)
 		if err != nil {
-			log.Fatalln(err)
+			return Action{}, err
 		}
 		frontSideAction := Action{
 			BaseAction:  frontSideBase,
@@ -236,7 +243,7 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		}
 		nestedBackChildren, err := nestActionsByProcessingRules(backSideChildren)
 		if err != nil {
-			log.Fatalln(err)
+			return Action{}, err
 		}
 		backSideAction := Action{
 			BaseAction:  backSideBase,
@@ -248,7 +255,7 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		var children []Action
 		children = append(children, frontSideAction)
 		children = append(children, backSideAction)
-		fmt.Println(children)
+		// fmt.Println(children)
 		return Action{
 			BaseAction:  transactionBase,
 			Description: "TODO Custom Description",
@@ -257,7 +264,7 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		}, nil
 
 	}
-	fmt.Println(firstAction, lastAction)
+	// fmt.Println(firstAction, lastAction)
 	return Action{}, nil
 }
 
@@ -283,7 +290,7 @@ func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
 					if childAction.Keyword == "PS" || childAction.Keyword == "PC" {
 						childrenSlice, err = nestActionsByProcessingRules(childrenSlice)
 						if err != nil {
-							log.Fatalln(err)
+							return nil, err
 						}
 					}
 				}
