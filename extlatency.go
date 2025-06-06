@@ -45,15 +45,6 @@ func Parse(logStr string) (Action, error) {
 				return Action{}, err
 			}
 			actionTree = nestedDatapowerLogTree
-			// fmt.Println(actionTree)
-
-			// jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
-			// if err != nil {
-			// 	log.Fatalf("Error marshaling to pretty JSON: %v", err)
-			// }
-
-			// fmt.Println("\n--- Pretty-Printed JSON Output ---")
-			// fmt.Println(string(jsonDataPretty))
 		}
 	} else if apiGatewayLogRegex.MatchString(logStr) {
 		// Handle as APIC Log
@@ -65,23 +56,12 @@ func Parse(logStr string) (Action, error) {
 			if err != nil {
 				return Action{}, err
 			}
-			// fmt.Println(rawAction)
 			actions := parseActions(rawActions, descMap)
-			// fmt.Println(actions)
 			nestedTree, err := nestActions(actions)
 			if err != nil {
 				return Action{}, err
 			}
 			actionTree = nestedTree
-			// fmt.Println("\nactionTree")
-			// fmt.Println(actionTree)
-			// jsonDataPretty, err := json.MarshalIndent(actionTree, "", "  ")
-			// if err != nil {
-			// 	log.Fatalf("Error marshaling to pretty JSON: %v", err)
-			// }
-
-			// fmt.Println("\n--- Pretty-Printed JSON Output ---")
-			// fmt.Println(string(jsonDataPretty))
 		}
 	} else {
 		return Action{}, fmt.Errorf("log does not match the format of extLatency logs")
@@ -150,8 +130,6 @@ func parseActionsDatapower(baseFrontActions []BaseAction, baseBackActions []Base
 	}
 	frontSideActions := actions[:len(baseFrontActions)]
 	backSideActions := actions[len(baseFrontActions):]
-	// fmt.Println(frontSideActions)
-	fmt.Println((backSideActions))
 	return frontSideActions, backSideActions
 }
 
@@ -256,7 +234,6 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		var children []Action
 		children = append(children, frontSideAction)
 		children = append(children, backSideAction)
-		// fmt.Println(children)
 		return Action{
 			BaseAction:  transactionBase,
 			Description: "TODO Custom Description",
@@ -265,7 +242,6 @@ func nestTreeDatapower(frontSideActions []Action, backSideActions []Action) (Act
 		}, nil
 
 	}
-	// fmt.Println(firstAction, lastAction)
 	return Action{}, nil
 }
 
@@ -278,8 +254,6 @@ func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
 	for i, action := range actions {
 		if action.Keyword == startKeyword {
 			startTracker = append(startTracker, i)
-			// fmt.Println("tracker")
-			// fmt.Println(startTracker)
 		}
 		if action.Keyword == endKeyword {
 			if len(startTracker) == 1 {
@@ -314,8 +288,6 @@ func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
 		if action.Keyword != endKeyword && len(startTracker) == 0 {
 			childrenActions = append(childrenActions, action)
 		}
-		// fmt.Printf("children %d", i)
-		// fmt.Println(childrenActions)
 	}
 
 	return childrenActions, err
