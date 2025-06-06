@@ -162,7 +162,7 @@ func parseActionsBase(actionsRawSplit []string) ([]BaseAction, error) {
 		keyword := splitStrs[0]
 		elapsed, err := strconv.ParseInt(splitStrs[1], 0, 64)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to parse action %s elapsed time as int", keyword)
+			return nil, fmt.Errorf("failed to parse action %s elapsed time as int", keyword)
 		}
 		action := BaseAction{keyword, int(elapsed)}
 		actions = append(actions, action)
@@ -192,7 +192,7 @@ func nestActions(actions []Action) (Action, error) {
 		}
 		return Action{
 			BaseAction:  transactionBase,
-			Description: "TODO Custom Description",
+			Description: "Transaction",
 			Duration:    lastAction.Elapsed - firstAction.Elapsed,
 			Children:    nestedChildren,
 		}, nil
@@ -301,7 +301,7 @@ func nestActionsByProcessingRules(actions []Action) ([]Action, error) {
 				}
 				processingRuleAction := Action{
 					BaseAction:  processingRuleBase,
-					Description: "TODO Custom Description",
+					Description: "Specifies the processing actions to apply to incoming documents",
 					Duration:    action.Elapsed - actions[firstStart].Elapsed,
 					Children:    childrenSlice,
 				}
