@@ -43,7 +43,7 @@ func Parse(logStr string) (Action, error) {
 			return Action{}, err
 		}
 		actionTree = nestedDatapowerLogTree
-		
+
 	} else {
 		// Handle as APIC Log
 		apiGatewayMatch := apiGatewayLogRegex.FindStringSubmatch(logStr)
@@ -87,9 +87,9 @@ type BaseAction struct {
 
 type Action struct {
 	BaseAction
-	Description string `json:"description"`
-	Duration    int    `json:"duration"` // duration of action (optional)
-	Children    any    `json:"children"` // nested children (optional)
+	Description string   `json:"description"`
+	Duration    int      `json:"duration"` // duration of action (optional)
+	Children    []Action `json:"children"` // nested children (optional)
 }
 
 func parseActions(baseActions []BaseAction, descMap map[string]string) []Action {
@@ -136,7 +136,7 @@ func parseActionsBase(actionsRawSplit []string) ([]BaseAction, error) {
 	for _, actionStrRaw := range actionsRawSplit {
 		splitStrs := strings.Split(actionStrRaw, "=")
 		keyword := splitStrs[0]
-		elapsed, err := strconv.ParseInt(splitStrs[1], 0, 64)
+		elapsed, err := strconv.ParseInt(splitStrs[1], 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse action %s elapsed time as int", keyword)
 		}
